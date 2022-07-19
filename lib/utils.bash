@@ -6,6 +6,7 @@ set -euo pipefail
 GH_REPO="https://chromedriver.chromium.org/"
 TOOL_NAME="chromedriver"
 TOOL_TEST="chromedriver --version"
+DL_PREFIX="https://chromedriver.storage.googleapis.com/"
 
 fail() {
   echo -e "asdf-$TOOL_NAME: $*"
@@ -13,11 +14,6 @@ fail() {
 }
 
 curl_opts=(-fsSL)
-
-# NOTE: You might want to remove this if chromedriver is not hosted on GitHub releases.
-if [ -n "${GITHUB_API_TOKEN:-}" ]; then
-  curl_opts=("${curl_opts[@]}" -H "Authorization: token $GITHUB_API_TOKEN")
-fi
 
 sort_versions() {
   sed 'h; s/[+-]/./g; s/.p\([[:digit:]]\)/.z\1/; s/$/.z/; G; s/\n/ /' |
@@ -31,9 +27,19 @@ list_github_tags() {
 }
 
 list_all_versions() {
-  # TODO: Adapt this. By default we simply list the tag names from GitHub releases.
-  # Change this function if chromedriver has other means of determining installable versions.
-  list_github_tags
+  local chrome_app version
+  case "$OSTYPE" in
+  darwin*) chrome_app="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ;;
+  linux*) chrome_app=google-chrome ;;
+  *) fail "Unsupported platform" ;;
+  esac
+
+  version=$("$chrome_app" --version | cut -f 3 -d ' ' | cut -d '.' -f 1)
+
+  curl "${curl_opts[@]}" "$DL_PREFIX" |
+    sed -e 's/<Key>/\n&/g' -e 's/<\/Key>/&\n/g' |
+    sed -n "s/[^<]*<Key>\($version\.[0-9]*\.[0-9]*\.[0-9]*\).*<\/Key>/\1/gp" |
+    uniq
 }
 
 download_release() {
@@ -41,8 +47,28 @@ download_release() {
   version="$1"
   filename="$2"
 
-  # TODO: Adapt the release URL convention for chromedriver
-  url="$GH_REPO/archive/v${version}.tar.gz"
+  local platform
+  case "$OSTYPE" in
+  darwin*) platform="mac" ;;
+  linux*) platform="linux" ;;
+  *) fail "Unsupported platform" ;;
+  esac
+
+  local architecture
+  if [ "$platform" == "mac" ]; then
+    case "$(uname -m)" in
+    x86_64) architecture="64" ;;
+    arm64) architecture="64_m1" ;;
+    *) fail "Unsupported architecture" ;;
+    esac
+  else
+    case "$(uname -m)" in
+    x86_64) architecture="64" ;;
+    *) fail "Unsupported architecture" ;;
+    esac
+  fi
+
+  url="${DL_PREFIX}${version}/${TOOL_NAME}_${platform}${architecture}.zip"
 
   echo "* Downloading $TOOL_NAME release $version..."
   curl "${curl_opts[@]}" -o "$filename" -C - "$url" || fail "Could not download $url"
@@ -61,7 +87,6 @@ install_version() {
     mkdir -p "$install_path"
     cp -r "$ASDF_DOWNLOAD_PATH"/* "$install_path"
 
-    # TODO: Assert chromedriver executable exists.
     local tool_cmd
     tool_cmd="$(echo "$TOOL_TEST" | cut -d' ' -f1)"
     test -x "$install_path/$tool_cmd" || fail "Expected $install_path/$tool_cmd to be executable."
