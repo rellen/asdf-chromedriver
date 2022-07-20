@@ -16,7 +16,7 @@
 
 # Dependencies
 
-- `bash`, `curl`, `tar`: generic POSIX utilities.
+- `bash`, `curl`, `sed`, `unzip`: generic POSIX utilities.
 - `chrome` web browser
 
 # Install
